@@ -12,3 +12,9 @@ placement = "popup"
 width = "90%"
 height = "80%"
 command = ["./vault.sh"]
+
+# Runs server-side so the picker popup can close instead of waiting for the agent.
+[[actions]]
+id = "launch"
+title = "Launch the selected session"
+command = ["./vault.sh", "--launch"]

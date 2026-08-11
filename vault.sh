@@ -40,6 +40,16 @@ row() {
 # picker display without relying on fzf field placeholders, which see only the display text.
 meta_row() { sed -n "$(($1 + 1))p" "$2"; }
 
+# Handoff between the picker and the launch action. herdr injects the state dir into
+# both, so this only falls back when the script is run outside herdr.
+# ponytail: one fixed path, read ~30ms after it is written. Two picks would have to land
+# inside that window to collide; make it per-invocation if that ever happens.
+pending_file() {
+	local dir=${HERDR_PLUGIN_STATE_DIR:-${TMPDIR:-/tmp}}
+	mkdir -p "$dir"
+	printf '%s/pending' "$dir"
+}
+
 case "${1:-}" in
 	# One row for one transcript. Exists so --list can fan out over xargs.
 	--row)
@@ -83,6 +93,18 @@ case "${1:-}" in
 		label=${cwd##*/}
 		pane=$(herdr tab create --cwd "$cwd" --label "$label" --focus |
 			jq -r '.result.root_pane.pane_id')
+
+		# Hand the launch to a plugin action and exit. The action runs under the herdr
+		# server, so it outlives this popup; anything backgrounded here dies with the pane.
+		printf '%s\t%s\t%s\n' "$pane" "$id" "$label" > "$(pending_file)"
+		herdr plugin action invoke launch --plugin vault >/dev/null
+		exit 0
+		;;
+	--launch)
+		pending=$(pending_file)
+		[ -f "$pending" ] || exit 0
+		read -r pane id label < "$pending"
+		rm -f "$pending"
 
 		# Wait for the prompt, then clear the line: agent start appends to whatever is
 		# already on it, and a keystroke can land here between tab create and launch.

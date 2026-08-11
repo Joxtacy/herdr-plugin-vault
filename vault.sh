@@ -56,13 +56,21 @@ case "${1:-}" in
 		row "$2"
 		exit 0
 		;;
+	# One chunk of transcripts, fanned out and re-ordered within the chunk.
+	--chunk)
+		shift
+		printf '%s\0' "$@" | xargs -0 -P 8 -n 1 "$SELF" --row | sort -rn -k1,1 | cut -f2-
+		exit 0
+		;;
 	# List mode: also the seam the self-check runs against.
-	# Scanning is process-bound, not IO-bound, so 8-way fan-out is ~5x faster than serial.
-	# Workers finish out of order, hence the mtime sort key that cut then strips.
+	# Scanning is process-bound, not IO-bound, so it fans out 8 ways. A global sort would
+	# hold every row back until the last one landed, so instead the files go through in
+	# mtime order in chunks: each chunk streams out as it finishes, newest first.
 	--list)
-		printf '%s\0' "$ROOT"/*/*.jsonl |
-			xargs -0 -P 8 -n 1 "$SELF" --row |
-			sort -rn -k1,1 | cut -f2-
+		{ stat -f '%m %N' "$ROOT"/*/*.jsonl 2>/dev/null ||
+			stat -c '%Y %n' "$ROOT"/*/*.jsonl; } |
+			sort -rn | cut -d' ' -f2- | tr '\n' '\0' |
+			xargs -0 -n 16 "$SELF" --chunk
 		exit 0
 		;;
 	--preview)
@@ -125,9 +133,12 @@ done
 
 meta=$(mktemp -t herdr-vault)
 trap 'rm -f "$meta"' EXIT
-"$SELF" --list > "$meta"
 
-cut -f1 "$meta" | fzf \
+# tee keeps the index lookups working while fzf consumes the same rows live: a row is
+# only selectable once it has been written, and both sides see identical ordering.
+# awk rather than cut: cut block-buffers into a pipe, which holds every row back until
+# the scan finishes and silently undoes the chunking.
+"$SELF" --list | tee "$meta" | awk -F'\t' '{ print $1; fflush() }' | fzf \
 	--preview="$SELF --preview {n} $meta" --preview-window='right:55%:wrap' \
 	--bind="enter:become($SELF --resume {n} $meta)" \
 	--header='enter: resume in new tab   esc: cancel' \

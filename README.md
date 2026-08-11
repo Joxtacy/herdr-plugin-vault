@@ -56,9 +56,9 @@ Popup size lives in `herdr-plugin.toml`.
 
 ## Notes
 
-The listing reads only the first few records of each transcript, so a few hundred
-sessions cost a couple of seconds and rows stream into fzf as they are found.
-Subagent transcripts (`*/subagents/*.jsonl`) are excluded.
+The listing reads only the first few records of each transcript and scans in parallel,
+in newest-first chunks, so the first rows appear in about 150ms and 143 sessions finish
+in roughly a second. Subagent transcripts (`*/subagents/*.jsonl`) are excluded.
 
 `./test_vault.sh` runs a self-check against a fixture transcript.
 

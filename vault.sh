@@ -5,11 +5,12 @@ set -euo pipefail
 ROOT="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 
+mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
+
 age() {
-	local mtime now d
-	mtime=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1")
+	local now d
 	now=$(date +%s)
-	d=$((now - mtime))
+	d=$((now - $1))
 	if [ $d -lt 3600 ]; then echo "$((d / 60))m"
 	elif [ $d -lt 86400 ]; then echo "$((d / 3600))h"
 	else echo "$((d / 86400))d"
@@ -19,18 +20,20 @@ age() {
 # ponytail: only the first few "user" records are read per transcript (grep -m8 stops there).
 # Reading whole files is ~50x slower and the first real prompt is the only title we need.
 row() {
-	local f=$1 id line
+	local f=$1 id line ts
+	[ -f "$f" ] || return 0
 	id=${f##*/}
 	id=${id%.jsonl}
 	line=$(grep -m8 '"type":"user"' "$f") || return 0
-	printf '%s\n' "$line" | jq -rs --arg id "$id" --arg f "$f" --arg age "$(age "$f")" '
+	ts=$(mtime "$f")
+	printf '%s\n' "$line" | jq -rs --arg id "$id" --arg f "$f" --arg ts "$ts" --arg age "$(age "$ts")" '
 		(.[0].cwd // "?") as $cwd
 		| (($cwd | split("/") | last) // "?") as $proj
 		| ([.[] | .message.content? | select(type == "string")
 			| select(startswith("<") | not)] | .[0] // "(no prompt)"
 			| gsub("\\s+"; " ") | .[0:100]) as $title
 		| (($age + "     ")[0:5] + ($proj + "                         ")[0:25] + " " + $title) as $display
-		| [$display, $f, $id, $cwd] | @tsv'
+		| [$ts, $display, $f, $id, $cwd] | @tsv'
 }
 
 # Row lookup by fzf's zero-based item index. The meta file keeps path/id/cwd out of the
@@ -38,10 +41,18 @@ row() {
 meta_row() { sed -n "$(($1 + 1))p" "$2"; }
 
 case "${1:-}" in
+	# One row for one transcript. Exists so --list can fan out over xargs.
+	--row)
+		row "$2"
+		exit 0
+		;;
 	# List mode: also the seam the self-check runs against.
-	# command ls -t gives newest-first; no extra sort needed.
+	# Scanning is process-bound, not IO-bound, so 8-way fan-out is ~5x faster than serial.
+	# Workers finish out of order, hence the mtime sort key that cut then strips.
 	--list)
-		command ls -t "$ROOT"/*/*.jsonl 2>/dev/null | while read -r f; do row "$f"; done
+		printf '%s\0' "$ROOT"/*/*.jsonl |
+			xargs -0 -P 8 -n 1 "$SELF" --row |
+			sort -rn -k1,1 | cut -f2-
 		exit 0
 		;;
 	--preview)

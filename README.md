@@ -9,15 +9,16 @@ first thing you asked. Pick one and it comes back in a new herdr tab.
 
 ```
 0m   dotfiles                  Can you add my herdr config in here?
-2m   configurator-config-files For what are the strings "sip.livekit.cloud" used for
-26d  k8s-apps                  Can you compare PR 1213 and 1250 and tell me what differs?
+2h   blog                      Draft a post about the new build pipeline
+26d  api-server                Why does the retry test flake on CI?
 ```
 
 ## Requirements
 
 - herdr 0.8.0 or newer
-- [`fzf`](https://github.com/junegunn/fzf) and [`jq`](https://jqlang.github.io/jq/) on `PATH`
+- [`fzf`](https://github.com/junegunn/fzf) 0.38 or newer and [`jq`](https://jqlang.github.io/jq/) on `PATH`
 - Claude Code (this plugin reads `~/.claude/projects`; it is Claude-specific by design)
+- macOS or Linux
 
 ## Install
 
@@ -60,7 +61,8 @@ The listing reads only the first few records of each transcript and scans in par
 in newest-first chunks, so the first rows appear in about 150ms and 143 sessions finish
 in roughly a second. Subagent transcripts (`*/subagents/*.jsonl`) are excluded.
 
-`./test_vault.sh` runs a self-check against a fixture transcript.
+`./test_vault.sh` runs a self-check against fixture transcripts, including a picker
+startup with `fzf` and `herdr` stubbed out. CI runs it on macOS and Linux.
 
 ## License
 

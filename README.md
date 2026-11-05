@@ -4,14 +4,18 @@ Browse past Claude Code sessions in a [herdr](https://herdr.dev) popup and resum
 the one you pick in a new tab.
 
 Every Claude Code session leaves a transcript in `~/.claude/projects`. Vault turns
-that pile into a searchable picker: when it was last touched, which project, and the
-first thing you asked. Pick one and it comes back in a new herdr tab.
+that pile into a searchable picker: when it was last touched, which project, and what
+it was about. Pick one and it comes back in a new herdr tab.
 
 ```
-0m   dotfiles                  Can you add my herdr config in here?
-2h   blog                      Draft a post about the new build pipeline
-26d  api-server                Why does the retry test flake on CI?
+0m   dotfiles                  Terminal vim mode breakage
+2h   blog                      Draft post on the new build pipeline [drafts/ci]
+26d  api-server                Flaky retry test on CI [main]
+90d  old-spike                 Benchmark the queue client (folder gone)
 ```
+
+Each row shows the title Claude gave the session (or your first prompt, for sessions
+without one) and the git branch it ran on.
 
 ## Requirements
 
@@ -39,14 +43,28 @@ Reload with `herdr server reload-config`.
 
 ## Use
 
-`prefix+alt+v` opens the popup. Type to filter on project name or prompt text; the
-right pane previews the conversation. Enter resumes.
+`prefix+alt+v` opens the popup. Type to filter on project, title or branch; the right
+pane previews the conversation.
+
+| Key      | Action                                                              |
+| -------- | ------------------------------------------------------------------- |
+| `enter`  | Resume the session in a new tab                                     |
+| `ctrl-f` | Fork it: a new session that starts from the old one's history       |
+| `ctrl-p` | Show only sessions from the project you opened vault from           |
+| `ctrl-a` | Show all projects again                                             |
+
+"The project you opened vault from" is the focused pane's git repository, or its
+directory when it is not in one; sessions started in subdirectories count. The keys
+only appear when vault can tell which pane that was.
+
+Sessions whose folder no longer exists are dimmed and marked `(folder gone)`.
 
 If the session you pick is already running in a pane, vault focuses that pane instead
-of resuming it — two processes appending to one transcript corrupts it.
+of resuming it — two processes appending to one transcript corrupts it. A fork writes
+to a new transcript, so it always opens a new tab, even while the original runs.
 
 Otherwise it creates a tab in the session's original working directory and launches
-`claude --resume <id>` there via `herdr agent start`, which waits until Claude is
+`claude --resume <id>` (plus `--fork-session` for a fork) there via `herdr agent start`, which waits until Claude is
 actually up. If the launch fails, the command is left on the prompt for you to run.
 
 ## Configuration
@@ -58,8 +76,11 @@ Popup size lives in `herdr-plugin.toml`.
 ## Notes
 
 The listing reads only the first few records of each transcript and scans in parallel,
-in newest-first chunks, so the first rows appear in about 150ms and 143 sessions finish
-in roughly a second. Subagent transcripts (`*/subagents/*.jsonl`) are excluded.
+in newest-first chunks, so the first rows appear almost at once and about 120 sessions
+finish in a second or two. Subagent transcripts (`*/subagents/*.jsonl`) are excluded.
+
+The branch is the one Claude recorded when the session started. Repos where git sits on
+a detached `HEAD` (Jujutsu, for example) show no branch.
 
 `./test_vault.sh` runs a self-check against fixture transcripts, including a picker
 startup with `fzf` and `herdr` stubbed out. CI runs it on macOS and Linux.

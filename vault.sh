@@ -60,6 +60,13 @@ row() {
 		| [$ts, $display, $f, $id, $cwd, $title, $branch] | @tsv'
 }
 
+# Keep rows whose cwd (field 4) is DIR or below it; an empty DIR keeps everything.
+under() {
+	VAULT_UNDER=$1 awk -F'\t' '
+		BEGIN { r = ENVIRON["VAULT_UNDER"] }
+		r == "" || $4 == r || index($4, r "/") == 1 { print; fflush() }'
+}
+
 # The project the user was looking at when vault opened: the focused pane's directory,
 # widened to its git root so sessions started in subdirectories count too.
 here_root() {
@@ -105,10 +112,15 @@ case "${1:-}" in
 		[ ${#files[@]} -gt 0 ] || exit 0
 		mtimes "${files[@]}" |
 			sort -rn | cut -d' ' -f2- | tr '\n' '\0' |
-			xargs -0 -n 16 "$SELF" --chunk |
-			VAULT_UNDER=${2:-} awk -F'\t' '
-				BEGIN { r = ENVIRON["VAULT_UNDER"] }
-				r == "" || $4 == r || index($4, r "/") == 1 { print; fflush() }'
+			xargs -0 -n 16 "$SELF" --chunk | under "${2:-}"
+		exit 0
+		;;
+	# Args: cache [DIR]. The project toggles reload from the rows the picker already
+	# scanned. Until that first scan has finished the cache is partial, so scan instead.
+	--cached)
+		if [ -f "$2.done" ]; then under "${3:-}" < "$2"
+		else exec "$SELF" --list "${3:-}"
+		fi
 		exit 0
 		;;
 	# Args: path id cwd title branch (hidden fields 2-6 of the row).
@@ -193,19 +205,24 @@ binds=(
 	--bind="ctrl-f:become($self_q --resume {3} {4} --fork)"
 )
 
+# The first scan is teed here so switching projects does not scan every transcript again.
+cache=$(mktemp "${TMPDIR:-/tmp}/herdr-vault.XXXXXX")
+trap 'rm -f "$cache" "$cache.done"' EXIT
+cache_q=$(printf '%q' "$cache")
+
 here=$(here_root)
 if [ -n "$here" ]; then
 	name=${here##*/}
 	name=${name//[\[\]]/}
 	# reload: goes last in its colon form so a ")" in the path cannot end it early.
 	binds+=(
-		--bind="ctrl-p:change-prompt[$name> ]+reload:$self_q --list $(printf '%q' "$here")"
-		--bind="ctrl-a:change-prompt[vault> ]+reload:$self_q --list"
+		--bind="ctrl-p:change-prompt[$name> ]+reload:$self_q --cached $cache_q $(printf '%q' "$here")"
+		--bind="ctrl-a:change-prompt[vault> ]+reload:$self_q --cached $cache_q"
 	)
 	header="$header"$'\n'"ctrl-p: only $name   ctrl-a: all projects"
 fi
 
-"$SELF" --list | fzf --ansi --delimiter='\t' --with-nth=1 \
+{ "$SELF" --list | tee "$cache"; : > "$cache.done"; } | fzf --ansi --delimiter='\t' --with-nth=1 \
 	--preview="$self_q --preview {2} {3} {4} {5} {6}" --preview-window='right:55%:wrap' \
 	"${binds[@]}" \
 	--header="$header" \

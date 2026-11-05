@@ -69,8 +69,19 @@ filtered=$(CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list "$work/demo" | cut 
 	fail "--list DIR kept the wrong rows: $filtered"
 [ -z "$(CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list "$work/demo2")" ] || fail "--list matched a sibling by prefix"
 
-# --list on an empty projects dir: no rows, clean exit.
+# --cached: filters the picker's saved rows without rescanning once the scan is done,
+# and falls back to a real scan while it is not.
+CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list > "$tmp/cache"
 mkdir -p "$tmp/empty"
+[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" "$work/demo" | wc -l | tr -d ' ')" -eq 0 ] ||
+	fail "--cached used a partial cache instead of scanning"
+: > "$tmp/cache.done"
+[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" "$work/demo" | wc -l | tr -d ' ')" -eq 2 ] ||
+	fail "--cached DIR did not filter the saved rows"
+[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" | wc -l | tr -d ' ')" -eq 3 ] ||
+	fail "--cached without DIR did not return every saved row"
+
+# --list on an empty projects dir: no rows, clean exit.
 out=$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --list 2>"$tmp/err") || fail "--list on empty dir exited non-zero"
 [ -z "$out" ] || fail "--list on empty dir printed: $out"
 [ ! -s "$tmp/err" ] || fail "--list on empty dir wrote to stderr: $(cat "$tmp/err")"
@@ -112,7 +123,7 @@ STUB_FOCUSED="$work/demo/sub" stubbed ./vault.sh </dev/null >/dev/null 2>"$tmp/e
 [ "$(wc -l < "$tmp/rows" | tr -d ' ')" -eq 3 ] || fail "fzf got $(wc -l < "$tmp/rows") rows, expected 3"
 grep -q 'Login form validation' "$tmp/preview" || fail "preview header missing title: $(cat "$tmp/preview")"
 grep -q 'USER: real   first' "$tmp/preview" || fail "preview missing conversation: $(cat "$tmp/preview")"
-grep -q -- "--list $(printf '%q' "$work/demo/sub")\$" "$tmp/fzf.args" || fail "ctrl-p not bound to the focused pane's dir: $(cat "$tmp/fzf.args")"
+grep -q -- "--cached .* $(printf '%q' "$work/demo/sub")\$" "$tmp/fzf.args" || fail "ctrl-p not bound to the focused pane's dir: $(cat "$tmp/fzf.args")"
 
 # With no focused pane, the project keys are left out rather than bound to nothing.
 STUB_FOCUSED="" stubbed ./vault.sh </dev/null >/dev/null 2>&1 || fail "picker failed with no focused pane"

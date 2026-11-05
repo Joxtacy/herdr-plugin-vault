@@ -5,7 +5,15 @@ set -euo pipefail
 ROOT="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 
-mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
+# GNU and BSD stat disagree on flags, and BSD-style `stat -f` under GNU does not fail
+# cleanly: it prints filesystem info for the file before erroring. Detect once instead
+# of trying one and falling back. GNU coreutils on a Mac takes the GNU branch.
+if stat -c %Y / >/dev/null 2>&1; then
+	mtimes() { stat -c '%Y %n' "$@"; }
+else
+	mtimes() { stat -f '%m %N' "$@"; }
+fi
+mtime() { mtimes "$1" | cut -d' ' -f1; }
 
 age() {
 	local now d
@@ -67,8 +75,10 @@ case "${1:-}" in
 	# hold every row back until the last one landed, so instead the files go through in
 	# mtime order in chunks: each chunk streams out as it finishes, newest first.
 	--list)
-		{ stat -f '%m %N' "$ROOT"/*/*.jsonl 2>/dev/null ||
-			stat -c '%Y %n' "$ROOT"/*/*.jsonl; } |
+		shopt -s nullglob
+		files=("$ROOT"/*/*.jsonl)
+		[ ${#files[@]} -gt 0 ] || exit 0
+		mtimes "${files[@]}" |
 			sort -rn | cut -d' ' -f2- | tr '\n' '\0' |
 			xargs -0 -n 16 "$SELF" --chunk
 		exit 0
@@ -131,15 +141,18 @@ for bin in fzf jq herdr; do
 	command -v "$bin" >/dev/null || { echo "vault needs $bin on PATH"; read -r _; exit 1; }
 done
 
-meta=$(mktemp -t herdr-vault)
+meta=$(mktemp "${TMPDIR:-/tmp}/herdr-vault.XXXXXX")
 trap 'rm -f "$meta"' EXIT
 
 # tee keeps the index lookups working while fzf consumes the same rows live: a row is
 # only selectable once it has been written, and both sides see identical ordering.
 # awk rather than cut: cut block-buffers into a pipe, which holds every row back until
 # the scan finishes and silently undoes the chunking.
+# fzf hands these strings to a shell, so quote the paths in case they contain spaces.
+self_q=$(printf '%q' "$SELF")
+meta_q=$(printf '%q' "$meta")
 "$SELF" --list | tee "$meta" | awk -F'\t' '{ print $1; fflush() }' | fzf \
-	--preview="$SELF --preview {n} $meta" --preview-window='right:55%:wrap' \
-	--bind="enter:become($SELF --resume {n} $meta)" \
+	--preview="$self_q --preview {n} $meta_q" --preview-window='right:55%:wrap' \
+	--bind="enter:become($self_q --resume {n} $meta_q)" \
 	--header='enter: resume in new tab   esc: cancel' \
 	--prompt='vault> '

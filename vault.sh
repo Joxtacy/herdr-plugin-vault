@@ -27,23 +27,27 @@ age() {
 
 # One TSV row per transcript: mtime, display, path, id, cwd, title, branch.
 # The picker shows only the display; the rest rides along as hidden fzf fields.
-# ponytail: only the first few "user" records and the first "ai-title" record are read
-# (grep -m stops there). Reading whole files is ~50x slower, and Claude's title for a
-# session almost never changes after it is first written.
+# Title priority: your /rename, then Claude's own title, then your first prompt.
+# ponytail: only the first few "user" records, the first "ai-title" record and the last
+# 64KB (for renames) are read. Reading whole files is ~50x slower. Claude's title almost
+# never changes after it is first written. A rename can land anywhere and the latest one
+# wins, but Claude keeps re-writing it as the session goes on, so the tail holds it.
 row() {
-	local f=$1 id users title cwd ts gone=0
+	local f=$1 id users title renamed cwd ts gone=0
 	[ -f "$f" ] || return 0
 	id=${f##*/}
 	id=${id%.jsonl}
 	users=$(grep -m8 '"type":"user"' "$f") || return 0
 	title=$(grep -m1 '"type":"ai-title"' "$f") || true
+	# The tail can start mid-line, so jq parses this one leniently (fromjson?).
+	renamed=$(tail -c 65536 "$f" | grep '"type":"custom-title"' | tail -1) || true
 	cwd=$(printf '%s\n' "$users" | grep -m1 -o '"cwd":"[^"]*"') || true
 	cwd=${cwd#\"cwd\":\"}
 	cwd=${cwd%\"}
 	[ -z "$cwd" ] || [ -d "$cwd" ] || gone=1
 	ts=$(mtime "$f")
 	printf '%s\n%s\n' "$users" "$title" |
-		jq -rs --arg id "$id" --arg f "$f" --arg ts "$ts" --arg age "$(age "$ts")" --arg gone "$gone" '
+		jq -rs --arg id "$id" --arg f "$f" --arg ts "$ts" --arg age "$(age "$ts")" --arg gone "$gone" --arg renamed "$renamed" '
 		"\u001b[2m" as $dim | "\u001b[0m" as $reset
 		| [.[] | select(.type == "user")] as $u
 		| ($u[0].cwd // "?") as $cwd
@@ -52,7 +56,8 @@ row() {
 		| ([.[] | select(.type == "ai-title") | .aiTitle? // empty | select(. != "")] | .[0]) as $ai
 		| ([$u[] | .message.content? | select(type == "string")
 			| select(startswith("<") | not)] | .[0]) as $prompt
-		| ($ai // $prompt // "(no prompt)" | gsub("\\s+"; " ") | .[0:100]) as $title
+		| ([$renamed | fromjson? | .customTitle? // empty | select(. != "")] | .[0]) as $custom
+		| ($custom // $ai // $prompt // "(no prompt)" | gsub("\\s+"; " ") | .[0:100]) as $title
 		| (($age + "     ")[0:5] + ($proj + "                         ")[0:25] + " " + $title) as $base
 		| (if $branch == "" then "" else " [" + $branch + "]" end) as $tag
 		| (if $gone == "1" then $dim + $base + $tag + " (folder gone)" + $reset

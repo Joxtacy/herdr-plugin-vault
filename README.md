@@ -14,8 +14,9 @@ it was about. Pick one and it comes back in a new herdr tab.
 90d  old-spike                 Benchmark the queue client (folder gone)
 ```
 
-Each row shows the title Claude gave the session (or your first prompt, for sessions
-without one) and the git branch it ran on.
+Each row shows the session's name and the git branch it ran on. The name is the one
+you gave it with `/rename` if you did, otherwise the title Claude gave it, otherwise
+your first prompt.
 
 ## Requirements
 

@@ -30,6 +30,18 @@ EOF
 cat > "$sub" <<EOF
 {"type":"user","cwd":"$work/demo/sub","gitBranch":"HEAD","message":{"content":"sub prompt"}}
 EOF
+# Renamed twice, late in a long session: the latest rename wins over Claude's title,
+# even when it sits far from the start of the file.
+renamed="$projects/a/33333333-2222-3333-4444-555555555555.jsonl"
+{
+	echo '{"type":"user","cwd":"'"$work/demo"'","message":{"content":"renamed prompt"}}'
+	echo '{"type":"ai-title","aiTitle":"Auto title"}'
+	echo '{"type":"custom-title","customTitle":"first name"}'
+	for _ in $(seq 400); do echo '{"type":"assistant","message":{"content":"padding padding padding padding padding padding padding padding"}}'; done
+	echo '{"type":"custom-title","customTitle":"final name"}'
+} > "$renamed"
+touch -t 202401010000 "$renamed"
+
 # Oldest: its folder is gone.
 cat > "$old" <<EOF
 {"type":"user","cwd":"$work/deleted","message":{"content":"older prompt"}}
@@ -40,7 +52,7 @@ touch -t 202001010000 "$old"
 # --list: rows newest first, nothing on stderr.
 out=$(CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list 2>"$tmp/err")
 [ ! -s "$tmp/err" ] || fail "--list wrote to stderr: $(cat "$tmp/err")"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 3 ] || fail "expected 3 rows, got: $out"
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 4 ] || fail "expected 4 rows, got: $out"
 
 r=$(printf '%s\n' "$out" | sed -n 1p)
 [ "$(field "$r" 2)" = "$new" ] || fail "path=$(field "$r" 2)"
@@ -58,6 +70,9 @@ r=$(printf '%s\n' "$out" | sed -n 2p)
 [[ "$(field "$r" 1 | strip)" =~ ^[0-9]+d\ *sub\ +sub\ prompt$ ]] || fail "bad display: $(field "$r" 1 | strip)"
 
 r=$(printf '%s\n' "$out" | sed -n 3p)
+[ "$(field "$r" 5)" = "final name" ] || fail "latest rename not used as title: $(field "$r" 5)"
+
+r=$(printf '%s\n' "$out" | sed -n 4p)
 [ "$(field "$r" 3)" = "66666666-7777-8888-9999-000000000000" ] || fail "oldest row last, got id=$(field "$r" 3)"
 [[ "$(field "$r" 1 | strip)" == *"older prompt (folder gone)" ]] || fail "gone folder not marked: $(field "$r" 1 | strip)"
 case "$(field "$r" 1)" in $'\033[2m'*) ;; *) fail "gone row not dimmed" ;; esac
@@ -65,7 +80,7 @@ case "$(field "$r" 1)" in $'\033[2m'*) ;; *) fail "gone row not dimmed" ;; esac
 # --list DIR: only sessions in DIR or below. demo2 must not match demo by prefix.
 mkdir -p "$work/demo2"
 filtered=$(CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list "$work/demo" | cut -f3 | tr '\n' ' ')
-[ "$filtered" = "11111111-2222-3333-4444-555555555555 22222222-2222-3333-4444-555555555555 " ] ||
+[ "$filtered" = "11111111-2222-3333-4444-555555555555 22222222-2222-3333-4444-555555555555 33333333-2222-3333-4444-555555555555 " ] ||
 	fail "--list DIR kept the wrong rows: $filtered"
 [ -z "$(CLAUDE_PROJECTS_DIR="$projects" ./vault.sh --list "$work/demo2")" ] || fail "--list matched a sibling by prefix"
 
@@ -76,9 +91,9 @@ mkdir -p "$tmp/empty"
 [ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" "$work/demo" | wc -l | tr -d ' ')" -eq 0 ] ||
 	fail "--cached used a partial cache instead of scanning"
 : > "$tmp/cache.done"
-[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" "$work/demo" | wc -l | tr -d ' ')" -eq 2 ] ||
+[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" "$work/demo" | wc -l | tr -d ' ')" -eq 3 ] ||
 	fail "--cached DIR did not filter the saved rows"
-[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" | wc -l | tr -d ' ')" -eq 3 ] ||
+[ "$(CLAUDE_PROJECTS_DIR="$tmp/empty" ./vault.sh --cached "$tmp/cache" | wc -l | tr -d ' ')" -eq 4 ] ||
 	fail "--cached without DIR did not return every saved row"
 
 # --list on an empty projects dir: no rows, clean exit.
@@ -120,7 +135,7 @@ stubbed() { PATH="$tmp/bin:$PATH" CLAUDE_PROJECTS_DIR="$projects" "$@"; }
 STUB_FOCUSED="$work/demo/sub" stubbed ./vault.sh </dev/null >/dev/null 2>"$tmp/err" ||
 	fail "picker exited non-zero: $(cat "$tmp/err")"
 [ ! -s "$tmp/err" ] || fail "picker wrote to stderr: $(cat "$tmp/err")"
-[ "$(wc -l < "$tmp/rows" | tr -d ' ')" -eq 3 ] || fail "fzf got $(wc -l < "$tmp/rows") rows, expected 3"
+[ "$(wc -l < "$tmp/rows" | tr -d ' ')" -eq 4 ] || fail "fzf got $(wc -l < "$tmp/rows") rows, expected 4"
 grep -q 'Login form validation' "$tmp/preview" || fail "preview header missing title: $(cat "$tmp/preview")"
 grep -q 'USER: real   first' "$tmp/preview" || fail "preview missing conversation: $(cat "$tmp/preview")"
 grep -q -- "--cached .* $(printf '%q' "$work/demo/sub")\$" "$tmp/fzf.args" || fail "ctrl-p not bound to the focused pane's dir: $(cat "$tmp/fzf.args")"

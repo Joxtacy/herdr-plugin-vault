@@ -23,7 +23,7 @@ your first prompt.
 - herdr 0.8.0 or newer
 - [`fzf`](https://github.com/junegunn/fzf) 0.38 or newer and [`jq`](https://jqlang.github.io/jq/) on `PATH`
 - Claude Code (this plugin reads `~/.claude/projects`; it is Claude-specific by design)
-- macOS or Linux
+- macOS or Linux. On Windows, run herdr inside WSL; native Windows is not supported
 
 ## Install
 
